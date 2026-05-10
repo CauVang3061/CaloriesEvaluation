@@ -12,6 +12,7 @@ import os
 import json
 import base64
 import time
+import re
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -62,109 +63,56 @@ def get_image_media_type(image_path: str) -> str:
     }
     return media_types.get(ext, "image/jpeg")
 
-
-def analyze_recipe_image(
-    client: Groq,
-    image_path: str,
-    title: str,
-    ingredients: str,
-) -> dict:
-    """
-    Analyze a single recipe image using Groq Vision API.
+def analyze_recipe_image(client: Groq, image_path: str, title: str, ingredients: str) -> dict:
+    default_result = {"visual_description": "", "tags": []}
     
-    Args:
-        client: Groq client instance
-        image_path: Path to the recipe image
-        title: Recipe title
-        ingredients: Recipe ingredients string
-        
-    Returns:
-        dict with 'visual_description' and 'tags' keys
-    """
-    # Default fallback values
-    default_result = {
-        "visual_description": "",
-        "tags": []
-    }
-    
-    # Check if image exists
-    if not os.path.exists(image_path):
-        print(f"  [WARN] Image not found: {image_path}")
-        return default_result
+    # Chuẩn bị prompt
+    prompt = ENRICHMENT_PROMPT.format(title=title, ingredients=ingredients)
     
     try:
-        # Encode image to base64
-        image_base64 = encode_image_to_base64(image_path)
-        media_type = get_image_media_type(image_path)
+        # Kiểm tra xem có ảnh hay không
+        has_image = os.path.exists(image_path)
         
-        # Prepare the prompt
-        prompt = ENRICHMENT_PROMPT.format(title=title, ingredients=ingredients)
-        
-        # Make API call with vision
+        if has_image:
+            # Nếu có ảnh: Gửi cả ảnh + text
+            image_base64 = encode_image_to_base64(image_path)
+            media_type = get_image_media_type(image_path)
+            content = [
+                {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{image_base64}"}},
+                {"type": "text", "text": prompt}
+            ]
+        else:
+            # Nếu không có ẢNH: Chỉ gửi text (Text-only fallback)
+            print(f"  [INFO] No image for '{title}', using text-only enrichment.")
+            content = [{"type": "text", "text": prompt}]
+
+        # Gọi API
         response = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{media_type};base64,{image_base64}"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt
-                        }
-                    ]
-                }
-            ],
+            messages=[{"role": "user", "content": content}],
             max_tokens=500,
-            temperature=0.3  # Lower temperature for more consistent JSON output
+            temperature=0.3
         )
         
-        # Parse response
         response_text = response.choices[0].message.content.strip()
-        
-        # Try to extract JSON from response
-        # Handle cases where model might add extra text
+        match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if match:
+            response_text = match.group(0)
+        # Làm sạch JSON response (loại bỏ bất kỳ text nào không phải JSON)
         if "```json" in response_text:
             response_text = response_text.split("```json")[1].split("```")[0].strip()
         elif "```" in response_text:
             response_text = response_text.split("```")[1].split("```")[0].strip()
         
         result = json.loads(response_text)
-        
-        # Validate and clean the result
-        visual_desc = result.get("visual_description", "")
-        tags = result.get("tags", [])
-        
-        # Ensure tags is a list of strings
-        if isinstance(tags, list):
-            tags = [str(t) for t in tags if t]
-        else:
-            tags = []
-        
         return {
-            "visual_description": str(visual_desc)[:200],  # Limit length
-            "tags": tags[:10]  # Limit to 10 tags
+            "visual_description": str(result.get("visual_description", ""))[:200],
+            "tags": result.get("tags", [])[:10]
         }
         
-    except json.JSONDecodeError as e:
-        print(f"  [WARN] JSON parse error for {title}: {e}")
-        return default_result
     except Exception as e:
-        error_str = str(e)
-        if "rate_limit" in error_str.lower() or "429" in error_str:
-            print(f"  [WARN] Rate limit hit. Waiting 60 seconds...")
-            time.sleep(60)
-            # Retry once
-            return analyze_recipe_image(client, image_path, title, ingredients)
-        else:
-            print(f"  [WARN] API error for {title}: {e}")
-            return default_result
-
+        print(f"  [WARN] Error enriching {title}: {e}")
+        return default_result
 
 def batch_enrich_recipes(recipes: list[dict], images_dir: str = IMAGES_DIR) -> list[dict]:
     """

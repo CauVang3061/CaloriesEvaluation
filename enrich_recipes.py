@@ -88,6 +88,8 @@ def update_enriched_recipes(enriched_recipes: list[dict]):
             # Original: title + ingredients + instructions
             # New: + visual_description + tags (joined as space-separated string)
             visual_desc = enriched.get("visual_description", "")
+            if not visual_desc:
+                continue  # Skip if enrichment failed
             tags = enriched.get("tags", [])
             tags_str = " ".join(tags) if isinstance(tags, list) else ""
             
