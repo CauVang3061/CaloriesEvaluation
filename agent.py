@@ -139,6 +139,8 @@ def parse_agent_output(output: str) -> dict:
         q = (result["query"] or "").upper()
         if q == "CLARIFY":
             result["intent"] = "CLARIFY"
+        elif q == "CALORIE_CHECK":
+            result["intent"] = "CALORIE_CHECK"
         elif q == "KNOWLEDGE":
             result["intent"] = "KNOWLEDGE"
         elif q.startswith("IMAGE_SEARCH"):
@@ -393,18 +395,21 @@ def chat_with_agent(user_message: str, history: list = None, image_file = None) 
         
         # Parse output
         parsed = parse_agent_output(llm_output)
-        print(f"[Parsed] Query: {parsed['query']}, Filter: {parsed['filter']}, Full: {parsed['full']}")
+        print(f"[Parsed] Intent: {parsed['intent']}, Query: {parsed['query']}, Filter: {parsed['filter']}")
+
+        if parsed['intent'] == 'CALORIE_CHECK':
+            return handle_calories_check(parsed['query'], parsed['filter'] or "general")
         
         # Handle clarification
-        if parsed['query'] and parsed['query'].upper() == 'CLARIFY':
+        if parsed['intent'] == 'CLARIFY':
             return parsed['response'] or "Could you please be more specific about what you're looking for?"
         
         # Handle knowledge/reasoning questions (no search needed)
-        if parsed['query'] and parsed['query'].upper() == 'KNOWLEDGE':
+        if parsed['intent'] == 'KNOWLEDGE':
             return parsed['response'] or "I can help with that question."
         
         # Handle IMAGE_SEARCH - use hybrid image search
-        if parsed['query'] and parsed['query'].upper().startswith('IMAGE_SEARCH'):
+        if parsed['intent'] == 'IMAGE_SEARCH':
             if image_file:
                 print("[AGENT] Executing hybrid image search...")
                 # Check for text modification (e.g., "IMAGE_SEARCH | strawberry cake")

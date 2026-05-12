@@ -377,13 +377,14 @@ class SuggestionEngine:
             for swap in suggestions["swaps"]:
                 dish = swap.get("dish", "")
                 if dish != current_dish:
+                    if current_dish is not None:
+                        lines.append("") 
+                        lines.append("")
                     lines.append(f"**{dish}**")
                     current_dish = dish
                 saving = swap.get("estimated_saving_kcal", 0)
-                lines.append(
-                    f"- ~~{swap['original_ingredient']}~~ → **{swap['swap_to']}**  "
-                    f"_{swap['reason']}_ (−{saving} kcal)"
-                )
+                lines.append(f"* Replace **{swap['original_ingredient']}** → **{swap['swap_to']}**")
+                lines.append(f"  - *{swap['reason']}* (**−{saving} kcal**)")
             lines.append("")
 
         # --- Nhánh B: Alternatives ---
