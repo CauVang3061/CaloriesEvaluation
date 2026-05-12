@@ -47,7 +47,12 @@ def format_instruction_list(text):
             items = parsed if isinstance(parsed, list) else [str(parsed)]
         except:
             items = str(text).split('\n')
-    cleaned = [f"* {re.sub(r'^[•\-\*]\s*', '', str(item)).strip()}" for item in items if str(item).strip()]
+    pattern = r'^[•\-\*]\s*'
+
+    cleaned = [
+        f"* {re.sub(pattern, '', str(item)).strip()}" 
+        for item in items if str(item).strip()
+    ]
     return "\n".join(cleaned)
 
 def get_recipe_image(image_name):
