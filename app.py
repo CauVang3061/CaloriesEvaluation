@@ -55,6 +55,39 @@ def format_instruction_list(text):
     ]
     return "\n".join(cleaned)
 
+def format_cooking_steps(text):
+    # 1. Handle stringified lists (like in your image: "['Step 1', 'Step 2']")
+    if text.startswith('[') and text.endswith(']'):
+        try:
+            # Safely convert the string list to an actual Python list
+            steps = ast.literal_eval(text)
+            return [s.strip() for s in steps if s.strip()]
+        except (ValueError, SyntaxError):
+            # Fallback if literal_eval fails: strip brackets and proceed
+            text = text.strip("[]")
+
+    # 2. Normalize: Replace manual numbering (1., 2.) with a delimiter
+    normalized = re.sub(r'\d+\.\s*', '|||', text)
+    
+    # 3. Segment: Split by the delimiter OR by periods followed by space/capital
+    # Using a positive lookbehind (?<=\.) ensures we don't "consume" the period
+    steps = re.split(r'\|\|\||(?<=\.)\s+(?=[A-Z])', normalized)
+    
+    final_steps = []
+    for step in steps:
+        # Clean up quotes, whitespace, and leading/trailing punctuation
+        clean_step = step.strip(" '\",.") 
+        
+        if clean_step:
+            # Capitalize only the first letter of the sentence
+            clean_step = clean_step[0].upper() + clean_step[1:]
+            final_steps.append(clean_step)
+    
+    thesteps = ""
+    for i, s in enumerate(final_steps):
+        thesteps += f"{i+1}. {s}\n"
+    return thesteps
+
 def get_recipe_image(image_name):
     if not image_name or str(image_name).lower() == 'nan': return None
     if not str(image_name).lower().endswith(".jpg"): image_name = f"{image_name}.jpg"
@@ -195,7 +228,7 @@ def render_recipe_blog():
         st.markdown(format_instruction_list(recipe['ingredients']))
     with c2:
         st.subheader("Instructions")
-        st.markdown(format_instruction_list(recipe['instructions']))
+        st.markdown(format_cooking_steps(recipe['instructions']))
 
 def render_ai_smart_search():
     if st.button("⬅️ Back to Main UI"):
