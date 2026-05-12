@@ -5,11 +5,12 @@ import re
 from dotenv import load_dotenv
 from PIL import Image
 from search_engine import RecipeSearchEngine
+from agent import chat_with_agent
 
 load_dotenv()
 
 
-st.set_page_config(page_title="Culinary Compass", page_icon="🧭", layout="wide")
+st.set_page_config(page_title="Healthy Culinary", page_icon="🧭", layout="wide")
 IMAGES_DIR = "Food Images"
 
 states = {
@@ -47,8 +48,46 @@ def format_instruction_list(text):
             items = parsed if isinstance(parsed, list) else [str(parsed)]
         except:
             items = str(text).split('\n')
-    cleaned = [f"* {re.sub(r'^[•\-\*]\s*', '', str(item)).strip()}" for item in items if str(item).strip()]
+    pattern = r'^[•\-\*]\s*'
+
+    cleaned = [
+        f"* {re.sub(pattern, '', str(item)).strip()}" 
+        for item in items if str(item).strip()
+    ]
     return "\n".join(cleaned)
+
+def format_cooking_steps(text):
+    # 1. Handle stringified lists (like in your image: "['Step 1', 'Step 2']")
+    if text.startswith('[') and text.endswith(']'):
+        try:
+            # Safely convert the string list to an actual Python list
+            steps = ast.literal_eval(text)
+            return [s.strip() for s in steps if s.strip()]
+        except (ValueError, SyntaxError):
+            # Fallback if literal_eval fails: strip brackets and proceed
+            text = text.strip("[]")
+
+    # 2. Normalize: Replace manual numbering (1., 2.) with a delimiter
+    normalized = re.sub(r'\d+\.\s*', '|||', text)
+    
+    # 3. Segment: Split by the delimiter OR by periods followed by space/capital
+    # Using a positive lookbehind (?<=\.) ensures we don't "consume" the period
+    steps = re.split(r'\|\|\||(?<=\.)\s+(?=[A-Z])', normalized)
+    
+    final_steps = []
+    for step in steps:
+        # Clean up quotes, whitespace, and leading/trailing punctuation
+        clean_step = step.strip(" '\",.") 
+        
+        if clean_step:
+            # Capitalize only the first letter of the sentence
+            clean_step = clean_step[0].upper() + clean_step[1:]
+            final_steps.append(clean_step)
+    
+    thesteps = ""
+    for i, s in enumerate(final_steps):
+        thesteps += f"{i+1}. {s}\n"
+    return thesteps
 
 def get_recipe_image(image_name):
     if not image_name or str(image_name).lower() == 'nan': return None
@@ -57,7 +96,7 @@ def get_recipe_image(image_name):
     return Image.open(image_path) if os.path.exists(image_path) else None
 
 def render_search_ui():
-    st.title("Culinary Compass 🧭")
+    st.title("Healthy Culinary 🧭")
     
     query = st.text_input(
         "Search by name, cuisine, or craving...", 
@@ -124,33 +163,50 @@ def render_results_grid():
         cols = st.columns(3)
         for i, (idx, row) in enumerate(results.iterrows()):
             with cols[i % 3]:
+                # Maintain fixed height to keep grid aligned
                 with st.container(border=True, height=500):
                     img = get_recipe_image(row['image_name'])
-                    if img: st.image(img, use_container_width=True)
+                    if img: 
+                        st.image(img, use_container_width=True)
+                    else:
+                        # Placeholder if image is missing to prevent layout jumps
+                        st.container(height=200, border=False)
                     
-                    if st.button(row['title'], key=f"btn_{idx}", use_container_width=True):
+                    # Use a standard button label but keep text consistent
+                    title = row['title']
+                    if st.button(title, key=f"btn_{idx}", use_container_width=True):
                         st.session_state.selected_recipe = row
                         st.session_state.view = 'detail'
                         st.rerun()
                     
+                    # STABILIZER: Check for calories
                     calories = row.get("calories_per_serving")
                     if calories and str(calories).lower() != 'nan':
                         st.caption(f"🔥 {int(float(calories))} Cal/serving")
-                    
+                    else:
+                        # This empty caption acts as a spacer to prevent "shaky text"
+                        st.caption("‎") # Contains an invisible Unicode character (U+200E)
+
+                    # Fridge search results spacing
                     if st.session_state.search_type == "fridge":
                         missing = row.get('missing_ingredients', [])
                         if not missing:
                             st.success("✅ Ready to cook!")
                         else:
                             st.warning(f"⚠️ Missing {len(missing)} items")
+                    else:
+                        # If not fridge search, add extra spacing to keep card full
+                        st.write("")
 
 def render_recipe_blog():
     recipe = st.session_state.selected_recipe
     
+    # 1. UI Layout: Header and Image
     col_img, col_info = st.columns([1, 2])
     with col_img:
         img = get_recipe_image(recipe['image_name'])
-        if img: st.image(img, width=350)
+        if img: 
+            st.image(img, width=350)
     
     with col_info:
         st.title(recipe['title'])
@@ -164,22 +220,43 @@ def render_recipe_blog():
         with btn_col2:
             if st.button("⬅️ Back to Search", use_container_width=True):
                 st.session_state.view = 'home'
+                # We reset recipe chat, but NOT the main search state
+                st.session_state.chat_history = []
+                st.session_state.active_chat = False
                 st.rerun()
 
+    # 2. Chat Interface Logic
     if chat_click or st.session_state.active_chat:
         st.session_state.active_chat = True
         st.divider()
         st.subheader(f"Conversation about {recipe['title']}")
+        
+        # Display existing chat history
         for m in st.session_state.chat_history:
-            with st.chat_message(m["role"]): st.markdown(m["content"])
+            with st.chat_message(m["role"]): 
+                st.markdown(m["content"])
 
+        # Chat Input logic
         if prompt := st.chat_input("Ask a question about this recipe..."):
+            # Add user message to state and display
             st.session_state.chat_history.append({"role": "user", "content": prompt})
-            with st.chat_message("user"): st.markdown(prompt)
-            response = f"I'm assisting you with the {recipe['title']}. How can I help with the steps?"
+            with st.chat_message("user"): 
+                st.markdown(prompt)
+            
+            # Use a spinner for better UX while the LLM processes
+            with st.spinner("Analyzing recipe..."):
+                # We prefix the prompt to ensure the agent focuses on the current recipe details
+                contextual_prompt = f"Regarding the recipe for {recipe['title']}: {prompt}"
+                
+                # Call the logic from your agent.py script
+                response = chat_with_agent(contextual_prompt, history=st.session_state.chat_history)
+            
+            # Add assistant response to state and display
             st.session_state.chat_history.append({"role": "assistant", "content": response})
-            with st.chat_message("assistant"): st.markdown(response)
+            with st.chat_message("assistant"): 
+                st.markdown(response)
 
+    # 3. Ingredients and Instructions Display
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
@@ -188,15 +265,16 @@ def render_recipe_blog():
         if st.session_state.search_type == "fridge" and missing:
             st.error(f"**Missing:** {', '.join(missing)}")
         st.markdown(format_instruction_list(recipe['ingredients']))
+        
     with c2:
         st.subheader("Instructions")
-        st.markdown(format_instruction_list(recipe['instructions']))
+        st.markdown(format_cooking_steps(recipe['instructions']))
 
 def render_ai_smart_search():
     if st.button("⬅️ Back to Main UI"):
         st.session_state.view = 'home'
         st.rerun()
-    st.header("Culinary Compass AI 🤖")
+    st.header("Healthy Culinary AI 🤖")
     if "agent_history" not in st.session_state: st.session_state.agent_history = []
     uploaded_image = st.file_uploader("📸 Upload food image (optional)", type=["jpg", "png", "jpeg"])
     for msg in st.session_state.agent_history:
