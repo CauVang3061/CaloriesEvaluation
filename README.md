@@ -41,8 +41,8 @@ CaloriesEvaluation/
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/CauVang3061/CaloriesEvaluation.git (branch thanh)
-cd CaloriesEvaluation
+git clone https://github.com/CauVang3061/HealthyCulinary.git
+cd HealthyCulinary
 pip install -r requirements.txt
 ```
 
