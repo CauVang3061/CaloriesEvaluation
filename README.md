@@ -79,6 +79,9 @@ python enrich_calories.py
 python enrich_calories.py --limit 50
 python enrich_calories.py --status
 ```
+- Uses Spoonacular's `analyzeRecipe` API
+- Stores `calories_per_serving`, `calorie_level`, and `servings`
+- Requires `SPOONACULAR_API_KEY` in your `.env`
 
 ### Phase 4: Calling Suggestion
 ```bash
@@ -86,9 +89,6 @@ python meal_parser.py
 python calories_assessor.py
 python suggest_engine.py
 ```
-- Uses Spoonacular's `analyzeRecipe` API
-- Stores `calories_per_serving`, `calorie_level`, and `servings`
-- Requires `SPOONACULAR_API_KEY` in your `.env`
 
 ## 🚀 Running the App
 
